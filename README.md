@@ -103,6 +103,9 @@ saved, resumed, and reproduced.
 | Re-run one failed task on your own machine, one operation at a time | `graphed.debug.replay` |
 | Resume a killed run; keep the checkpoints on S3 or another URL | `graphed.checkpoint`; add `graphed[checkpoint]` for a URL |
 | Hand your analysis to a colleague, exactly | add `graphed[preserve]` → `graphed.preserve` |
+| Write a skim in the same pass as your histograms | `graphed.aggregate_plan(writes=[...])` with `graphed.awkward.parquet_write` |
+| Run MC and data as one plan when their graphs differ | `graphed.collate` |
+| Call a server (a Triton model, say) from your analysis | `graphed.services` |
 
 Everything under one import path, and what each part does for you:
 
@@ -121,7 +124,8 @@ Everything under one import path, and what each part does for you:
 - [Your first real analysis](docs/quickstart.rst) — a parquet dataset, a jet cut, a
   systematic variation and a histogram, end to end.
 - [How the frontend works](docs/frontend/design.rst) — what gets recorded, how duplicate
-  expressions collapse as you build, and the full `graphed.vary` grammar for systematics.
+  expressions collapse as you build, the full `graphed.vary` grammar for systematics, skims and
+  several datasets in one plan, and analyses that call a server.
 - [How the awkward backend works](docs/awkward/design.rst) — column reading, corrections,
   ML models, and writing varied skims.
 - [API reference](docs/api.rst).

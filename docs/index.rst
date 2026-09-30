@@ -63,8 +63,10 @@ Where to go next
 **Write an analysis.** :doc:`quickstart` takes a parquet dataset through a selection, a
 systematic variation and a histogram in one program. :doc:`awkward/index` is the porting guide
 for ``gak`` — what maps one-to-one from ``ak.*`` and what does not. :doc:`frontend/index`
-covers the recording surface itself: sessions, arrays, forms, provenance, ``vary``.
-:doc:`numpy/index` is the same idea for flat arrays.
+covers the recording surface itself: sessions, arrays, forms, provenance, ``vary``. Its
+:doc:`frontend/design` page also shows how to write a skim in the same pass as your histograms,
+run MC and data as one plan when their graphs differ, and call a server (a Triton model, say)
+from inside an analysis. :doc:`numpy/index` is the same idea for flat arrays.
 
 **See it done.** :doc:`notebooks/systematics-tour` walks every way to declare a systematic, from
 one up/down pair to the CMS jet-energy → MET → b-tag stack on a single context, printing the

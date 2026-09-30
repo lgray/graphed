@@ -19,7 +19,10 @@ data, part writes included (``graphed.write.PartWrite``), and ``collate`` joins 
 graphs into one. ``vary`` declares a systematic variation, and ``labels`` / ``nominal`` / ``universe`` /
 ``variations`` read the results back (each tag's ``Kind``, a flag, beside its ordering). ``join``, ``repartition``, ``join_plan`` and
 ``shuffle_plan`` move rows between partitions; ``read_columns`` and ``impact_by_label`` tell you
-what a recording will actually read off disk.
+what a recording will actually read off disk. ``output_type=`` on ``map`` and ``apply`` declares
+what an opaque call returns, and ``OutputTypeError`` is what you get when the value disagrees.
+``graphed.services`` declares the servers an analysis calls (``ServiceSpec``) and binds the
+addresses a run reaches them at (``bind_services``).
 
 .. autosummary::
    :toctree: generated

@@ -10,39 +10,51 @@ Newest release first. Numbers in parentheses are the pull requests on
 Services an analysis calls
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+An analysis that calls a server — a Triton model, say — declares it by name, and each run supplies
+the address, so the same analysis runs against a server on your laptop, at your site or one a
+runner starts for you. :doc:`frontend/design` walks through it under "An analysis that calls a
+server".
+
 * ``graphed.services.ServiceSpec`` (with an optional ``Launch`` recipe) declares a service an
   analysis calls: ``Session.declare_service``, ``Session.services()``, ``Session.service_for``. An
-  External names one through ``params["service"]``; an undeclared name is refused at record time.
+  External names one through ``params["service"]``; an undeclared name is refused at record time
+  (#58).
 * ``Plan.services`` and ``DurablePlan.services`` carry the specs the recording names
   (``aggregate_plan(services=...)`` adds names no node carries), and so does the awkward
   ``to_parquet`` write plan. ``DurablePlan.to_bytes`` writes the key only when non-empty, so a plan
-  without services keeps its bytes.
+  without services keeps its bytes (#58).
 * ``graphed.services.bind_services(plan, {name: "scheme://host:port"})`` binds run endpoints into a
   plan's process without changing the recording; ``split_endpoint`` checks the form (``tcp``,
-  ``http``, ``https``, ``grpc``, ``grpcs``). A part bound earlier keeps its endpoint.
+  ``http``, ``https``, ``grpc``, ``grpcs``). A part bound earlier keeps its endpoint (#58).
 * ``SequentialRunner`` refuses a plan with an unbound service before its first task:
   ``graphed.services.require_bound(plan)`` raises ``UnboundService`` naming every missing service
   (``.names``), so a collated plan writes no parts first. A plan without services skips the check.
-  A runner with its own task loop must make the same call before its first task.
+  A runner with its own task loop must make the same call before its first task (#61).
 * A ``reduce`` that calls a service must give itself a ``bind_services`` hook that raises
   ``UnboundService`` when the endpoints lack its name and it holds none, as an External does; the
-  check then names it too. A reduce without such a hook is not checked.
+  check then names it too. A reduce without such a hook is not checked (#61).
 * ``graphed.services.resolve_services(plan, value)`` resolves a run's value through the parts
   ``bind_services`` reaches: a process or ``reduce`` with a ``resolve_services`` hook
   (``graphed.services.Resolvable``) returns the resolved value, and ``collate`` hands each plan's
-  process its own entry. A part without the hook keeps its value.
+  process its own entry. A part without the hook keeps its value (#63).
 * A Triton External names ``service=`` or a literal ``url=``, not both. The endpoint's scheme picks
   ``tritonclient.http`` or ``tritonclient.grpc`` (TLS on ``https``/``grpcs``); a url without a
   scheme keeps the HTTP client and ``params["transport"]`` still overrides. The ``ml`` extra
-  installs ``tritonclient[grpc,http]``.
+  installs ``tritonclient[grpc,http]`` (#58).
 * The per-process External resource cache keys on the endpoint and the params ``load`` reads
-  (``ExternalPlugin.load_params``), so a correction set is still loaded once across systematics.
+  (``ExternalPlugin.load_params``), so a correction set is still loaded once across systematics (#58).
 * Preservation bundles list the referenced specs in ``manifest["services"]`` (absent when there are
   none) and ``inspect()`` prints them. ``RunReport.endpoints`` records where a run reached each
-  service, outside the fingerprint; ``reproduce`` refuses an External that calls a service.
+  service, outside the fingerprint; ``reproduce`` refuses an External that calls a service (#58).
 
 Declared output types for external calls
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+graphed cannot look inside your ``map`` callable or a model, so it records the result with the
+input's type: a lumi mask computed from run numbers is recorded as integers, not booleans. Now you
+can say what the call returns, and a value of another type fails at the line that declared it
+rather than wherever it is next used. :doc:`awkward/design` shows it under "Declaring what an external call
+returns".
 
 * ``Array.map``, ``graphed.apply`` and ``Session.record_external`` take ``output_type=``, the type
   of each element of the call's value, and record that type instead of the first input's (awkward)
@@ -51,46 +63,51 @@ Declared output types for external calls
   objects, forms, numpy dtypes and Python types; numpy takes dtypes of every kind and Python
   types; every numerical dtype works on both, except that awkward 2.14's type grammar refuses
   ``float16`` inside a list or record or with parameters. The declaration is a node
-  param, so it is identity; an undeclared call records the same bytes as 0.0.6 (#57).
+  param, so it is identity; an undeclared call records the same bytes as 0.0.6 (#59).
 * ``graphed.preserve.externals.record_external`` takes ``output_type=`` too, so a plugin
-  External such as a golden-JSON lumi mask records ``bool`` and indexes as a mask (#57).
+  External such as a golden-JSON lumi mask records ``bool`` and indexes as a mask (#59).
 * ``ExternalPlugin.output_dtype`` declares a plugin's static leaf dtype. The seven float64
   built-in plugins (correctionlib, ONNX, TensorFlow, PyTorch, XGBoost, JAX, Triton) and
   ``gak.apply_correction(..., args=)`` now record float64 leaves instead of their first input's
-  dtype. Their plan bytes are unchanged.
+  dtype. Their plan bytes are unchanged (#59).
 * ``gak.apply_correction`` and ``gak.onnx_inference`` with ``args=`` refuse an input from another
-  ``Session`` with a ``GraphedTypeError`` at the call, not a plain ``TypeError``.
-* A numpy ``gufunc`` External refuses ``output_type=``: its signature and ``output_dtype=`` type it.
+  ``Session`` with a ``GraphedTypeError`` at the call, not a plain ``TypeError`` (#59).
+* A numpy ``gufunc`` External refuses ``output_type=``: its signature and ``output_dtype=`` type it (#59).
 * A declared type is checked against the value each time the call runs, never cast. A value of
   another type raises ``graphed.OutputTypeError``, a ``GraphedTypeError``, at the declaring line;
   an aggregate plan raises a ``StageError`` there, from a worker process too, and a bundle's
   ``reproduce`` raises it too. The value is an array when any input is. awkward compares the exact type
   string, letting ``unknown`` (a list with no values) fit anything; numpy compares the dtype, the
   trailing shape a subarray declares and the leading axis. A plugin's ``output_dtype``, and
-  ``gak.apply_correction``'s float64, are checked leaf by leaf. Undeclared calls are not checked.
+  ``gak.apply_correction``'s float64, are checked leaf by leaf. Undeclared calls are not checked
+  (#62).
 
 One plan for every output
 ~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The skim you write and the histograms you fill now come out of the same read of the data, and MC
+and data run as one plan even when their graphs differ. :doc:`frontend/design` shows both, under
+"One pass over the dataset, many outputs" and "Several graphs in one plan".
 
 * ``aggregate_plan(writes=[...])`` writes one part per task beside the plan's reductions, from the
   same read and evaluation. ``reduce`` receives the outputs' values as before, then one part path
   per write. A write is a ``graphed.write.PartWrite``: the array, a destination, a ``name`` for
   each task's partition, the backend's codec, and ``metadata`` whose array values are that part's
   own reductions. Colliding part names, a reduction as a written array, and ``store=`` with writes
-  are refused when the plan is built.
+  are refused when the plan is built (#60).
 * ``graphed.collate({name: plan})`` joins plans over different graphs and sources, data and MC
   say, into one plan whose value is ``{name: value}``. Each task runs its own plan's graph, and
   the runner tree-reduces all the tasks together. A part two of its plans would both write, from
   ``writes=`` or ``to_parquet``, is refused when it is built; ``graphed.debug.replay`` refuses a
   plan with writes. Its ``Plan.services`` is the union of its plans' services and
   ``bind_services`` binds every plan's process; a service name two plans declare differently is
-  refused.
+  refused (#60).
 * ``graphed.awkward.parquet_write`` writes parquet parts through ``ak.to_arrow_table`` and
   ``pyarrow.parquet.write_table`` with options for each, and per-part key-value metadata that
-  replaces the schema's.
-* ``refuse_chunk_partials(as_outputs=)`` also accepts the compiled output ids to refuse.
+  replaces the schema's (#60).
+* ``refuse_chunk_partials(as_outputs=)`` also accepts the compiled output ids to refuse (#60).
 * ``gak.num(x, axis=0)`` records a reduction, so a per-chunk count can no longer feed another node
-  silently; as a plan output it folds like any other reduction.
+  silently; as a plan output it folds like any other reduction (#60).
 
 0.0.6
 -----
