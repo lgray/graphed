@@ -1142,7 +1142,11 @@ Some steps are answered by a server rather than read from a file — a Triton in
 scoring your jets, say. The server's address differs between your laptop, the LPC and lxplus, but
 the analysis does not, so the address is not part of it. The analysis declares *what* it needs, by
 name; each run supplies *where* that name answers. The example starts a small local HTTP server
-that hands out a scale factor, and calls it through an external operation of its own:
+that hands out a scale factor, and calls it through a small plugin of its own
+(``ExternalPlugin``): ``load`` runs once per worker process — here it fetches the scale factor —
+and ``evaluate`` runs on each chunk. The payload (``b"v1"``) and ``content_hash`` identify what is
+being called, and ``samples`` gives two example payloads so that hash can be checked;
+:doc:`../preserve/design` ("Adding a format the bundle does not know") covers plugins in full.
 
 .. code-block:: python
 
@@ -1210,7 +1214,8 @@ Prints::
     150.0
 
 ``ServiceSpec("sf", "http", check="http:/sf.json")`` is the requirement: the name operations
-refer to (``params={"service": "sf"}``), a ``kind`` a site can match, and how to tell the server is
+refer to (``params={"service": "sf"}``), a ``kind`` (a ``graphed-executors`` site profile maps a
+kind to the server that site hosts), and how to tell the server is
 ready — ``tcp``, ``http:<path>`` or ``grpc:<service>``. Naming a service the session never declared
 is an error at the line that names it. The plan carries the declarations it needs as
 ``plan.services``, and the runner refuses a plan with a service left unbound before its first
@@ -1221,9 +1226,10 @@ part, not at the first call to a server that is not there.
 scheme one of ``tcp``, ``http``, ``https``, ``grpc`` or ``grpcs`` (the ``s`` ones are TLS);
 anything else is refused. Binding hands the address to the plan's workers and leaves the graph
 alone: the same analysis bound to two different servers has the same graph and the same tasks.
-Every plan built from a recording carries its services the same way: ``aggregate_plan`` (with its
-``writes=``), the awkward ``to_parquet`` write, and ``collate``, whose plan holds the union of its
-plans' services and refuses one name declared two different ways.
+The plans ``aggregate_plan`` (with its ``writes=``), the awkward ``to_parquet`` write and
+``collate`` build carry their services the same way; ``collate``'s holds the union of its plans'
+services and refuses one name declared two different ways. A join or repartition plan carries none
+— :doc:`improvements` has the workaround.
 
 The shipped Triton plugin takes a service the same way: record it with
 ``params={"service": "tagger", ...}`` instead of a literal ``url``, and the endpoint's scheme picks

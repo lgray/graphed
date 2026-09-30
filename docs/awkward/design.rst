@@ -542,8 +542,8 @@ count as scalars, as inputs and as values. The one allowance is ``unknown``, the
 list that holds no values anywhere in the partition: it fits whatever was declared in its place.
 A plugin's ``output_dtype`` (see :doc:`../preserve/design`) is a leaf dtype, so every leaf of the
 value must have it. An undeclared call is not checked and costs nothing; the check on a declared
-one takes about 10 µs per call whatever the value's length (measured on 10⁵- and 10⁶-element
-values, flat and jagged).
+one takes 10–20 µs per call, independent of the value's length; more fields in the type take
+longer (measured on 10⁵- and 10⁶-element values: flat, jagged, and a four-field jagged record).
 
 
 Reading and writing parquet

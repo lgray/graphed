@@ -1,7 +1,7 @@
 Current limits and workarounds
 ==============================
 
-Five things you are likely to run into while porting an analysis, and what to do about each.
+Six things you are likely to run into while porting an analysis, and what to do about each.
 :doc:`design` explains the machinery behind them.
 
 An opaque callable has no result type
@@ -126,3 +126,15 @@ step of a file. ``aggregate_plan`` refuses such a plan when it is built.
 
 **Instead:** name blind parts by ``partition.blind_step``, or pass explicit ``partitions=`` (for
 example from the dataset's entry counts) and name them by their range.
+
+
+A server call cannot come before a join or a repartition
+--------------------------------------------------------
+
+The plans ``join_plan`` and ``shuffle_plan`` build carry no services, so nothing binds an address
+for a server call recorded upstream of the join or the repartition; ``bind_services`` cannot take
+such a plan.
+
+**Instead:** make the server call in a skim of its own. ``to_parquet(..., compute=False)`` returns
+a plan that carries the service, so bind it and run it, then join or repartition the written files
+in a new session.

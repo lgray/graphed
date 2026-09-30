@@ -20,7 +20,8 @@ graphs into one. ``vary`` declares a systematic variation, and ``labels`` / ``no
 ``variations`` read the results back (each tag's ``Kind``, a flag, beside its ordering). ``join``, ``repartition``, ``join_plan`` and
 ``shuffle_plan`` move rows between partitions; ``read_columns`` and ``impact_by_label`` tell you
 what a recording will actually read off disk. ``output_type=`` on ``map`` and ``apply`` declares
-what an opaque call returns, and ``OutputTypeError`` is what you get when the value disagrees.
+what an opaque call returns; a value that disagrees raises ``OutputTypeError`` where it is evaluated,
+and a plan run reports it as a ``StageError`` whose cause it is.
 ``graphed.services`` declares the servers an analysis calls (``ServiceSpec``) and binds the
 addresses a run reaches them at (``bind_services``).
 

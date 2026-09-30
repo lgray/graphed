@@ -332,7 +332,8 @@ content, with no formatting or metadata to normalize away, use it directly.
 Services in a bundle
 --------------------
 
-An analysis that calls a service declares it on the session (see :doc:`../architecture`), and
+An analysis that calls a service declares it on the session (see :doc:`../frontend/design`, "An analysis that calls a server"),
+and
 the bundle keeps that declaration beside the payloads: ``manifest["services"]`` lists, in name
 order, each declared spec an operation in the graph names — the requirement and the recipe for
 starting one, never an endpoint. A declared service no operation names is not written, and a
