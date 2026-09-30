@@ -508,8 +508,8 @@ float32``), or ``bool``, ``int``, ``float`` or ``complex`` (``int`` is ``int64``
 Every spelling of one type is one node, recorded under awkward's own type string, and two
 declared types are two nodes. A type awkward cannot build — ``"nope"``, ``object``, a non-native byte
 order — is refused at your line. ``float16`` is accepted on its own; awkward 2.14's type grammar
-cannot read it inside a list or record or with parameters, so ``"var * float16"`` is refused
-until an awkward release reads it, with no graphed change needed then. Over a scalar input the declared type must
+cannot read it inside a list or record or with parameters, so ``"var * float16"`` is refused.
+Over a scalar input the declared type must
 be a primitive, such as ``"bool"``.
 
 A declaration is checked, never converted. Each time the call runs, its value's type is compared
@@ -541,8 +541,9 @@ recorded form says so too) and a scalar otherwise; a single record (``ev[0]``) a
 count as scalars, as inputs and as values. The one allowance is ``unknown``, the type awkward gives a
 list that holds no values anywhere in the partition: it fits whatever was declared in its place.
 A plugin's ``output_dtype`` (see :doc:`../preserve/design`) is a leaf dtype, so every leaf of the
-value must have it. An undeclared call is not checked and costs nothing; a declared one costs
-10 to 20 µs per call, measured on 10⁵ and 10⁶-element values.
+value must have it. An undeclared call is not checked and costs nothing; the check on a declared
+one takes about 10 µs per call whatever the value's length (measured on 10⁵- and 10⁶-element
+values, flat and jagged).
 
 
 Reading and writing parquet
