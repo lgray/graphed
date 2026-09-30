@@ -1135,6 +1135,121 @@ fold order across tasks can differ), so datasets can also be launched separately
 afterwards.
 
 
+An analysis that calls a server
+-------------------------------
+
+Some steps are answered by a server rather than read from a file — a Triton inference server
+scoring your jets, say. The server's address differs between your laptop, the LPC and lxplus, but
+the analysis does not, so the address is not part of it. The analysis declares *what* it needs, by
+name; each run supplies *where* that name answers. The example starts a small local HTTP server
+that hands out a scale factor, and calls it through an external operation of its own:
+
+.. code-block:: python
+
+    import json
+    import tempfile
+    import threading
+    import urllib.request
+    from functools import partial
+    from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+
+    import awkward as ak
+    from graphed import Session, aggregate_plan
+    from graphed.awkward import AwkwardBackend, from_parquet, gak
+    from graphed.core.execution import SequentialRunner
+    from graphed.preserve.externals import ExternalPlugin, record_external, sha256_bytes
+    from graphed.services import ServiceSpec, UnboundService, bind_services
+
+    root = tempfile.mkdtemp()
+    ak.to_parquet(ak.Array({"pt": [40.0, 25.0, 55.0]}), f"{root}/events.parquet")
+
+
+    def fetch_sf(payload, params):
+        """Runs once per worker process; params["url"] is the endpoint this run bound."""
+        with urllib.request.urlopen(f"{params['url']}/sf.json") as reply:
+            return json.load(reply)["sf"]
+
+
+    SF = ExternalPlugin(kind="sf_server", content_hash=sha256_bytes, load=fetch_sf,
+                        evaluate=lambda sf, params, inputs: inputs[0] * sf, samples=lambda: [b"v1", b"v2"])
+
+    s = Session(AwkwardBackend())
+    s.declare_service(ServiceSpec("sf", "http", check="http:/sf.json"))
+    ev = from_parquet(s, "events", f"{root}/events.parquet")
+    corrected = record_external(s, SF, b"v1", [ev.pt], params={"service": "sf"})
+    plan = aggregate_plan(gak.sum(corrected), reduce=lambda v: float(v[0]),
+                          combine=lambda a, b: a + b, empty=lambda: 0.0)
+    print([spec.name for spec in plan.services])
+
+    try:
+        SequentialRunner().run(plan)
+    except UnboundService as err:
+        print(err)
+
+    # a stand-in for the server: it answers GET /sf.json
+    with open(f"{root}/sf.json", "w") as f:
+        json.dump({"sf": 1.25}, f)
+
+
+    class QuietHandler(SimpleHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), partial(QuietHandler, directory=root))
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+
+    bound = bind_services(plan, {"sf": f"http://127.0.0.1:{server.server_port}"})
+    print(SequentialRunner().run(bound).value)
+    server.shutdown()
+
+Prints::
+
+    ['sf']
+    service 'sf' has no endpoint: bind with graphed.services.bind_services(plan, {'sf': 'scheme://host:port'}), or run the plan through an executor that resolves Plan.services
+    150.0
+
+``ServiceSpec("sf", "http", check="http:/sf.json")`` is the requirement: the name operations
+refer to (``params={"service": "sf"}``), a ``kind`` a site can match, and how to tell the server is
+ready — ``tcp``, ``http:<path>`` or ``grpc:<service>``. Naming a service the session never declared
+is an error at the line that names it. The plan carries the declarations it needs as
+``plan.services``, and the runner refuses a plan with a service left unbound before its first
+task, naming every such service at once — so the run stops before it reads a file or writes a
+part, not at the first call to a server that is not there.
+
+``bind_services(plan, {name: endpoint})`` supplies the address, as ``scheme://host:port`` with the
+scheme one of ``tcp``, ``http``, ``https``, ``grpc`` or ``grpcs`` (the ``s`` ones are TLS);
+anything else is refused. Binding hands the address to the plan's workers and leaves the graph
+alone: the same analysis bound to two different servers has the same graph and the same tasks.
+Every plan built from a recording carries its services the same way: ``aggregate_plan`` (with its
+``writes=``), the awkward ``to_parquet`` write, and ``collate``, whose plan holds the union of its
+plans' services and refuses one name declared two different ways.
+
+The shipped Triton plugin takes a service the same way: record it with
+``params={"service": "tagger", ...}`` instead of a literal ``url``, and the endpoint's scheme picks
+the HTTP or the gRPC client. :doc:`../preserve/design` shows that recording, and what a
+preservation bundle keeps of a service — its declaration, never an address.
+
+**Where it goes next.** Binding by hand suits a server you already have running. A
+``ServiceSpec`` can also carry a ``Launch`` recipe — the command, a container image, the CPUs,
+memory and GPUs it needs — and the cluster runners in ``graphed-executors`` act on the declaration
+for every run: they take an endpoint you pass (``services={"sf": "http://host:port"}``), else the
+one your site names, else they start the server from the recipe, check from a worker that it
+answers, bind it, and stop it when the run ends. The graphed-executors
+`Services <https://github.com/graphed-org/graphed-executors/blob/main/docs/htcondor.rst#services>`_
+section has the details.
+
+A ``reduce`` of your own that talks to a service is not a recorded operation, so name its service
+when you build the plan — ``aggregate_plan(..., services=["name"])`` — and give the ``reduce`` two
+optional methods. ``bind_services(endpoints)`` returns a bound copy, and raises ``UnboundService`` naming the service
+when ``endpoints`` lacks it and the copy holds no address of its own; the pre-run check then names
+it too (a ``reduce`` without the method is not checked). ``resolve_services(value)`` turns the
+run's value into its final form while the services are still up — a receipt from a server into the
+result it stands for — and :func:`graphed.services.resolve_services` reaches it through
+``aggregate_plan`` and ``collate``. ``SequentialRunner`` starts no services, so it does not call
+it; a runner that brings services up calls it before it stops them.
+
+
 Joining and repartitioning datasets
 -----------------------------------
 

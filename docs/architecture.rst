@@ -118,46 +118,20 @@ the values it already evaluated, beside the reductions. When datasets need diffe
 weighted, data not), ``graphed.collate`` joins their plans into one plan. Each task runs the graph
 of the dataset its file belongs to, and the value holds one result per dataset.
 
-Service surface
----------------
+Servers an analysis calls
+-------------------------
 
-Some operations call a service rather than a file: a Triton server that scores events, a
-histogram server that holds the fills. Where that service answers is a fact about the run, not
-about the analysis, so ``graphed`` keeps the two apart.
-
-The analysis declares what it needs. ``Session.declare_service(ServiceSpec(name, kind, ...))``
-records the requirement — the ``name`` operations refer to, a ``kind`` a site can match, the
-readiness ``check`` (``tcp``, ``http:<path>``, or ``grpc:<service>``) — and optionally a
-``Launch`` recipe (argv, container image, resources) for starting one. An operation names a
-declared service through ``params["service"]``; naming one that was never declared is refused as
-you record it. ``aggregate_plan`` (its ``writes=`` included) and the awkward ``to_parquet`` put
-the specs the recording references on ``Plan.services``, ``collate`` puts the union of its plans',
-``DurablePlan`` serializes them, and a preservation bundle lists them in its manifest.
-
-The run supplies where. An endpoint is ``scheme://host:port`` with the scheme one of ``tcp``,
-``http``, ``https``, ``grpc`` or ``grpcs``; the wire and TLS live on the endpoint because the same
-service may be reached over different wires at different sites.
-``graphed.services.bind_services(plan, {name: endpoint})`` returns a plan whose process carries
-the endpoints; the recording is untouched, so two runs against two servers compile to the same
-bytes. A run's endpoints are provenance of that run: ``RunReport.endpoints`` keeps them, outside
-the bundle's fingerprint. ``graphed`` never starts a service itself; a runner in
-``graphed-executors`` finds an endpoint for each spec — a user endpoint, a site's, or one it starts
-from the recipe — and binds them before the first task. Binding adds endpoints: a part bound earlier keeps
-its own. An External raises ``UnboundService`` when binding leaves it without an endpoint; a
-``reduce`` that calls a service must give itself a ``bind_services`` hook that does the same
-(``graphed.services.Bindable``), and a reduce without such a hook is not checked.
-``graphed.services.resolve_services(plan, value)`` hands a run's value back through the same
-parts, so a part can turn it into its final form while the services are still up (a histogram
-server's receipt into its snapshot, say): a process with a ``resolve_services`` hook
-(``graphed.services.Resolvable``) returns the resolved value, ``aggregate_plan``'s process forwards
-it to its ``reduce``, and ``collate``'s to each plan's process with that plan's own ``{name: value}``
-entry. A part without the hook keeps its value, and a name absent from the value is not called.
-``SequentialRunner`` does not call it; a runner that brings services up must, before it closes them.
-``SequentialRunner`` calls ``graphed.services.require_bound(plan)`` before its first task, so a
-plan with a service left unbound raises ``UnboundService`` naming every such service before any
-task runs or any part is written; a plan without services skips the check. A runner with its own
-task loop must make the same call before its first task; the ``graphed-executors`` runners do not
-yet.
+Some operations are answered by a server rather than a file — a Triton server that scores events,
+say. Where that server answers is a fact about the run, not about the analysis, so the two are
+kept apart. The analysis declares what it needs on the session
+(``Session.declare_service(ServiceSpec(name, kind, ...))``, optionally with a ``Launch`` recipe for
+starting one), and the plan carries those declarations to whatever runs it. The run supplies the
+address: :func:`graphed.services.bind_services` hands endpoints to the plan's workers without
+touching the graph, and a runner refuses a plan with a service left unbound before its first task.
+``graphed`` never starts a server itself; the cluster runners in ``graphed-executors`` find or
+start one for each declared service, bind it, and stop what they started when the run ends. A
+preservation bundle keeps the declarations, never an address. :doc:`frontend/design` walks through
+it with a runnable example, under "An analysis that calls a server".
 
 What you install
 ----------------
