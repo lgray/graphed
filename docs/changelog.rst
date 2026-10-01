@@ -47,6 +47,39 @@ server".
   none) and ``inspect()`` prints them. ``RunReport.endpoints`` records where a run reached each
   service, outside the fingerprint; ``reproduce`` refuses an External that calls a service (#58).
 
+Join and repartition plans run their recording
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+* ``join_plan`` and ``shuffle_plan`` build stages that evaluate the recorded graph: each
+  ``map_write`` task reads its partition and evaluates up to the join or exchange, each gather
+  task joins or concatenates its destination and runs what was recorded after it. Before, the
+  stages were block kernels that no runner could run, and operations after a join were dropped.
+  ``shuffle_plan`` now ends in a one-task ``reduce`` stage that folds the destinations; the
+  plans' bytes and task ids change with their stages.
+* ``join_plan(reduce=, combine=, empty=)`` (all or none) folds the per-destination values as
+  ``aggregate_plan`` folds partitions; without them the plan's value is one output per
+  destination. Each ``map_write`` stage reads the source of the matching join input, so the left
+  side stays on the left whatever order the sources were registered in.
+* ``SequentialRunner().run`` takes a ``DurablePlanV2`` and returns ``plan.value`` of its last
+  stage (``DurablePlanV2.value``); a cancel returns ``value=None``. ``run_shuffle_resumable`` runs
+  builder output too. ``graphed.shuffle.split``/``pick`` read and slice a map-write payload.
+* ``DurablePlanV2.services`` carries the services a join or repartition plan's operations call
+  (``services=`` adds names), written only when non-empty, outside the task ids.
+  ``bind_services``, ``require_bound`` and ``resolve_services`` take a ``DurablePlanV2``; binding
+  sets ``OpSpec.live`` and changes neither the bytes nor any task id.
+* ``evaluate_ir`` evaluates ``exchange`` and ``join`` nodes through the backend, as
+  ``Session.materialize`` does, and takes ``outputs=``/``given=`` to evaluate one side of a
+  barrier.
+* A per-destination awkward join has the whole join's type, also where one side has no rows.
+* The builders refuse, when the plan is built, a ``target_bytes=`` repartition (run it with
+  ``run_repartition_by_size``), an operation after the join or exchange that reads a source
+  directly, a reduction a node consumes on either side of the barrier (and an unfolded one at a
+  ``join_plan`` output), and ``gak.join(grouped=True)`` with ``how="right"`` or ``"outer"``.
+* An operation that fails in a join or repartition plan raises a ``StageError`` at its recording
+  line, as in an aggregate plan.
+* ``graphed.shuffle.partition_block`` is removed: no stage routes blocks outside the recorded
+  graph any more.
+
 Declared output types for external calls
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -105,6 +138,11 @@ and data run as one plan even when their graphs differ. :doc:`frontend/design` s
 * ``graphed.awkward.parquet_write`` writes parquet parts through ``ak.to_arrow_table`` and
   ``pyarrow.parquet.write_table`` with options for each, and per-part key-value metadata that
   replaces the schema's (#60).
+* ``aggregate_plan(opt_level=0)`` ships the 1:1 cone of the plan's outputs, written arrays and
+  metadata arrays (``GraphStore.cone(outputs=)``) instead of the optimized graph, so ``reduce``
+  receives one value per distinct output where ``1``, the default, may merge equal ones; any other
+  level is refused. Its ``StageError`` reports the level, and ``graphed.debug.replay`` recompiles at
+  the plan's level and reduces one value per output of the plan's IR, as the run does (#64).
 * ``refuse_chunk_partials(as_outputs=)`` also accepts the compiled output ids to refuse (#60).
 * ``gak.num(x, axis=0)`` records a reduction, so a per-chunk count can no longer feed another node
   silently; as a plan output it folds like any other reduction (#60).
