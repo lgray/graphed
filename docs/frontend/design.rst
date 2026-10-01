@@ -1228,8 +1228,38 @@ anything else is refused. Binding hands the address to the plan's workers and le
 alone: the same analysis bound to two different servers has the same graph and the same tasks.
 The plans ``aggregate_plan`` (with its ``writes=``), the awkward ``to_parquet`` write and
 ``collate`` build carry their services the same way; ``collate``'s holds the union of its plans'
-services and refuses one name declared two different ways. A join or repartition plan carries none
-— :doc:`improvements` has the workaround.
+services and refuses one name declared two different ways. ``join_plan`` and ``shuffle_plan``
+build a ``DurablePlanV2`` that carries them too, so a server call may come before a join or a
+repartition. Continuing the example, the scale factor is applied before a join with a lumi table:
+
+.. code-block:: python
+
+    from graphed import join, join_plan
+
+    ak.to_parquet(ak.Array({"run": [1, 1, 2], "pt": [40.0, 25.0, 55.0]}), f"{root}/runs.parquet")
+    ak.to_parquet(ak.Array({"run": [1, 2], "lumi_w": [0.9, 1.1]}), f"{root}/lumi.parquet")
+
+    s = Session(AwkwardBackend())
+    s.declare_service(ServiceSpec("sf", "http", check="http:/sf.json"))
+    ev = from_parquet(s, "events", f"{root}/runs.parquet")
+    lumi = from_parquet(s, "lumi", f"{root}/lumi.parquet")
+    corrected = record_external(s, SF, b"v1", [ev.pt], params={"service": "sf"})  # before the join
+    joined = join(gak.with_field(ev, corrected, "pt_sf"), lumi, on=["run"], how="inner")
+    plan = join_plan(joined.pt_sf * joined.lumi_w)
+    print(type(plan).__name__, [spec.name for spec in plan.services])
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), partial(QuietHandler, directory=root))
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    bound = bind_services(plan, {"sf": f"http://127.0.0.1:{server.server_port}"})
+    print(SequentialRunner().run(bound).value)
+    server.shutdown()
+
+Prints::
+
+    DurablePlanV2 ['sf']
+    (<Array [45, 28.1, 75.6] type='3 * float64'>,)
+
+Each value is ``pt`` times the server's 1.25 times its run's ``lumi_w``.
 
 The shipped Triton plugin takes a service the same way: record it with
 ``params={"service": "tagger", ...}`` instead of a literal ``url``, and the endpoint's scheme picks
